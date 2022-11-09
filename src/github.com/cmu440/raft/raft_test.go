@@ -85,6 +85,174 @@ func TestBasicAgree2B(t *testing.T) {
 	fmt.Printf("======================= END =======================\n\n")
 }
 
+func TestMikeHidden2B(t *testing.T) {
+	fmt.Printf("==================== 3 SERVERS ====================\n")
+	servers := 3
+	cfg := make_config(t, servers, false)
+	defer cfg.cleanup()
+	fmt.Printf("Hidden Test (2B): more strict check on rejoin of partitioned nodes\n")
+	fmt.Printf("Checking agreement\n")
+	cfg.one(10, servers)
+	fmt.Printf("Checking one leader\n")
+	leader := cfg.checkOneLeader()
+	cfg.disconnect(leader) // disconnects leader
+
+	fmt.Printf("Put 3 commands to leader\n")
+
+	index, _, ok := cfg.rafts[leader].PutCommand(40)
+	if !ok {
+		t.Fatalf("Leader rejected PutCommand()")
+	}
+	if index != 2 {
+		t.Fatalf("Expected index 2, got %v", index)
+	}
+	index, _, ok = cfg.rafts[leader].PutCommand(50)
+	if !ok {
+		t.Fatalf("Leader rejected PutCommand()")
+	}
+	if index != 3 {
+		t.Fatalf("Expected index 2, got %v", index)
+	}
+	index, _, ok = cfg.rafts[leader].PutCommand(60)
+	if !ok {
+		t.Fatalf("Leader rejected PutCommand()")
+	}
+	if index != 4 {
+		t.Fatalf("Expected index 2, got %v", index)
+	}
+
+	// check new leader in partition
+	fmt.Printf("Check new leader in partition\n")
+	s := make(IntSet, 2)
+	for i := 0; i < servers; i++ {
+		if i != leader {
+			s[i] = struct{}{}
+		}
+	}
+	newLeader := cfg.checkLeaderInPartition(s)
+	index, _, ok = cfg.rafts[newLeader].PutCommand(70)
+	if !ok {
+		t.Fatalf("Leader rejected PutCommand()")
+	}
+	if index != 2 {
+		t.Fatalf("Expected index 2, got %v", index)
+	}
+	time.Sleep(1 * RaftElectionTimeout)
+	n, _ := cfg.nCommitted(index)
+	if n != 2 {
+		t.Fatalf("Expected two commited, got %v", n)
+	}
+	fmt.Printf("Disconnect new leader and reconnect the old leader\n")
+	cfg.disconnect(newLeader) // disconnects leader
+	cfg.connect(leader)
+	time.Sleep(1 * RaftElectionTimeout)
+	lastLeader := cfg.checkOneLeader()
+	if lastLeader == -1 {
+		t.Fatalf("No leader")
+	}
+	fmt.Printf("Checking agreement!\n")
+	cfg.one(80, servers-1)
+	fmt.Printf("======================= END =======================\n\n")
+
+}
+
+func TestMikeRejoinHidden2B(t *testing.T) {
+	fmt.Printf("==================== 5 SERVERS ====================\n")
+	servers := 5
+	cfg := make_config(t, servers, false)
+	defer cfg.cleanup()
+
+	fmt.Printf("Hidden Test (2B): rejoin of partitioned leader\n")
+	fmt.Printf("Checking agreement\n")
+	cfg.one(10, servers)
+
+	leader := cfg.checkOneLeader()
+
+	fmt.Printf("Disconnecting leader %v\n", leader)
+	cfg.disconnect(leader) // disconnects leader
+
+	fmt.Printf("Put 3 commands to disconnected leader\n")
+
+	index, _, ok := cfg.rafts[leader].PutCommand(40)
+	if !ok {
+		t.Fatalf("Leader rejected PutCommand()")
+	}
+	if index != 2 {
+		t.Fatalf("Expected index 2, got %v", index)
+	}
+	index, _, ok = cfg.rafts[leader].PutCommand(50)
+	if !ok {
+		t.Fatalf("Leader rejected PutCommand()")
+	}
+	if index != 3 {
+		t.Fatalf("Expected index 2, got %v", index)
+	}
+	index, _, ok = cfg.rafts[leader].PutCommand(60)
+	if !ok {
+		t.Fatalf("Leader rejected PutCommand()")
+	}
+	if index != 4 {
+		t.Fatalf("Expected index 2, got %v", index)
+	}
+
+	// check new leader in partition
+	s := make(IntSet, 4)
+	for i := 0; i < servers; i++ {
+		if i != leader {
+			s[i] = struct{}{}
+		}
+	}
+	//time.Sleep(1 * RaftElectionTimeout)
+	newLeader := cfg.checkLeaderInPartition(s)
+	index, _, ok = cfg.rafts[newLeader].PutCommand(70)
+	if !ok {
+		t.Fatalf("Leader rejected PutCommand()")
+	}
+	if index != 2 {
+		t.Fatalf("Expected index 2, got %v", index)
+	}
+	fmt.Printf("Agreement on new leader \n")
+	time.Sleep(1 * RaftElectionTimeout)
+	n, _ := cfg.nCommitted(index)
+	if n != 4 {
+		t.Fatalf("Expected four commited, got %v", n)
+	}
+	fmt.Printf("Disconnect new leader %v \n", newLeader)
+	cfg.disconnect(newLeader)
+	fmt.Printf("Reconnect the first disconnected leader %v\n", leader)
+	cfg.connect(leader)
+	s1 := make(IntSet, 4)
+	for i := 0; i < servers; i++ {
+		if i != newLeader {
+			s1[i] = struct{}{}
+		}
+	}
+	// gets the new leader
+	fmt.Printf("Checking agreement \n")
+	//time.Sleep(1 * RaftElectionTimeout)
+	secondLeader := cfg.checkLeaderInPartition(s1)
+	index, _, ok = cfg.rafts[secondLeader].PutCommand(170)
+	if !ok {
+		t.Fatalf("Leader rejected PutCommand()")
+	}
+	if index != 3 {
+		t.Fatalf("Expected index 3, got %v", index)
+	}
+	time.Sleep(1 * RaftElectionTimeout)
+	n1, _ := cfg.nCommitted(index)
+	if n1 != 4 {
+		t.Fatalf("Expected four commited, got %v", n)
+	}
+	fmt.Printf("Connect the second disconnected leader. %v\n", newLeader)
+	cfg.connect(newLeader)
+	//time.Sleep(1 * RaftElectionTimeout)
+	fmt.Printf("Checking one leader\n")
+	cfg.checkOneLeader()
+	fmt.Printf("Checking agreement!\n")
+	cfg.one(180, servers)
+	fmt.Printf("======================= END =======================\n\n")
+
+}
 func TestFailAgree2B(t *testing.T) {
 	fmt.Printf("==================== 3 SERVERS ====================\n")
 	servers := 3
@@ -747,6 +915,11 @@ func (cfg *config) one(cmd int, expectedServers int) int {
 				}
 				time.Sleep(20 * time.Millisecond)
 			}
+			//for i := 0; i < expectedServers; i++ {
+			//	for index, element := range cfg.logs[i] {
+			//		fmt.Printf("Server Index %v,vIndex %v, value %v\n", i, index, element)
+			//	}
+			//}
 		} else {
 			time.Sleep(50 * time.Millisecond)
 		}
